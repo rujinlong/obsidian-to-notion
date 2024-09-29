@@ -86,9 +86,9 @@ export class Upload2Notion {
 	}
 
 	async syncMarkdownToNotion(title:string, allowTags:boolean, tags:string[], markdown: string, nowFile: TFile, app:App, settings:any): Promise<any> {
-		let res:any
+		let res:any;
 		const yamlObj:any = yamlFrontMatter.loadFront(markdown);
-		let __content = yamlObj.__content
+		let __content = yamlObj.__content;
 
 		// 添加这个函数来替换 zotero:// 链接
 		const replaceZoteroLinks = (content: string): string => {
@@ -99,14 +99,16 @@ export class Upload2Notion {
 		__content = replaceZoteroLinks(__content);
 
 		const file2Block = markdownToBlocks(__content);
-		const frontmasster =await app.metadataCache.getFileCache(nowFile)?.frontmatter
-		const notionID = frontmasster ? frontmasster.notionID : null
+
+		// 从文档内容中读取 Notion ID
+		const notionIdMatch = __content.match(/Notion ID: ([a-f0-9-]+)/);
+		const notionID = notionIdMatch ? notionIdMatch[1] : null;
 
 		if(notionID){
 				res = await this.updatePage(notionID, title, allowTags, tags, file2Block);
 		} else {
 			 	res = await this.createPage(title, allowTags, tags, file2Block);
-		}
+			}
 		if (res.status === 200) {
 			await this.updateYamlInfo(markdown, nowFile, res, app, settings)
 		} else {
@@ -115,34 +117,45 @@ export class Upload2Notion {
 		return res
 	}
 
-	async updateYamlInfo(yamlContent: string, nowFile: TFile, res: any,app:App, settings:any) {
-		const yamlObj:any = yamlFrontMatter.loadFront(yamlContent);
-		let {url, id} = res.json
-		// replace www to notionID
+	async updateYamlInfo(yamlContent: string, nowFile: TFile, res: any, app: App, settings: any) {
+		let {url, id} = res.json;
 		const {notionID} = settings;
-		if(notionID!=="") {
-			// replace url str "www" to notionID
-			url  = url.replace("www.notion.so", `${notionID}.notion.site`)
+		if (notionID !== "") {
+			url = url.replace("www.notion.so", `${notionID}.notion.site`);
 		}
-		yamlObj.link = url;
+
 		try {
-			await navigator.clipboard.writeText(url)
+			await navigator.clipboard.writeText(url);
 		} catch (error) {
-			new Notice(`复制链接失败，请手动复制${error}`)
+			new Notice(`复制链接失败，请手动复制${error}`);
 		}
-		yamlObj.notionID = id;
-		const __content = yamlObj.__content;
-		delete yamlObj.__content
-		const yamlhead = yaml.stringify(yamlObj)
-		//  if yamlhead hava last \n  remove it
-		const yamlhead_remove_n = yamlhead.replace(/\n$/, '')
-		// if __content have start \n remove it
-		const __content_remove_n = __content.replace(/^\n/, '')
-		const content = '---\n' +yamlhead_remove_n +'\n---\n' + __content_remove_n;
+
+		const fileContent = await nowFile.vault.read(nowFile);
+		
+		// 定义标记，用于识别需要更新的区域
+		const startMarker = "<!-- NOTION-SYNC-START -->";
+		const endMarker = "<!-- NOTION-SYNC-END -->";
+
+		// 查找标记之间的内容
+		const regex = new RegExp(`${startMarker}[\\s\\S]*?${endMarker}`);
+		const notionInfoBlock = `${startMarker}
+Notion URL: ${url}
+Notion ID: ${id}
+${endMarker}`;
+
+		let newContent;
+		if (regex.test(fileContent)) {
+			// 如果找到了标记，替换其中的内容
+			newContent = fileContent.replace(regex, notionInfoBlock);
+		} else {
+			// 如果没有找到标记，在文件末尾添加
+			newContent = `${fileContent}\n\n${notionInfoBlock}`;
+		}
+
 		try {
-			await nowFile.vault.modify(nowFile, content)
+			await nowFile.vault.modify(nowFile, newContent);
 		} catch (error) {
-			new Notice(`write file error ${error}`)
+			new Notice(`写入文件错误 ${error}`);
 		}
 	}
 }
