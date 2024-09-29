@@ -88,7 +88,16 @@ export class Upload2Notion {
 	async syncMarkdownToNotion(title:string, allowTags:boolean, tags:string[], markdown: string, nowFile: TFile, app:App, settings:any): Promise<any> {
 		let res:any
 		const yamlObj:any = yamlFrontMatter.loadFront(markdown);
-		const __content = yamlObj.__content
+		let __content = yamlObj.__content
+
+		// 添加这个函数来替换 zotero:// 链接
+		const replaceZoteroLinks = (content: string): string => {
+			return content.replace(/\[([^\]]+)\]\(zotero:\/\/([^)]+)\)/g, '[$1](https://$2)');
+		};
+
+		// 在转换为 blocks 之前替换链接
+		__content = replaceZoteroLinks(__content);
+
 		const file2Block = markdownToBlocks(__content);
 		const frontmasster =await app.metadataCache.getFileCache(nowFile)?.frontmatter
 		const notionID = frontmasster ? frontmasster.notionID : null
